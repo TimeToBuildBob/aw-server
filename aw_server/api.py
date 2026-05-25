@@ -352,9 +352,7 @@ class ServerAPI:
                 starttime = iso8601.parse_date(period[0])
                 endtime = iso8601.parse_date(period[1])
             except iso8601.ParseError as e:
-                raise QueryException(
-                    f"Invalid timeperiod '{timeperiod}': {e}"
-                )
+                raise QueryException(f"Invalid timeperiod '{timeperiod}': {e}")
             query = "".join(query)
             result.append(query2.query(name, query, starttime, endtime, self.db))
         return result
