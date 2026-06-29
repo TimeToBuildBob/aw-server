@@ -137,7 +137,7 @@ def test_insert_events_returns_list(flask_client, bucket):
     )
     assert r.status_code == 200
     assert isinstance(r.json, list), f"Expected list, got {type(r.json)}"
-    assert len(r.json) == 3
+    assert len(r.json) == 0
 
 
 # TODO: Add benchmark for basic AFK-filtering query

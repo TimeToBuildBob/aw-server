@@ -234,14 +234,14 @@ class ServerAPI:
 
         Always returns a list of inserted events (matching aw-server-rust behavior).
         For single events, the returned event includes the server-assigned ID.
-        For bulk inserts, events may not have IDs due to storage limitations."""
+        For bulk inserts, returns empty list (events may not have IDs without a response-SQL roundtrip)."""
         if len(events) == 1:
             # Pass as single Event so Bucket.insert uses insert_one (returns Event with ID)
             inserted = self.db[bucket_id].insert(events[0])
             return [inserted]
         else:
             self.db[bucket_id].insert(events)
-            return events
+            return []
 
     @check_bucket_exists
     def get_eventcount(
