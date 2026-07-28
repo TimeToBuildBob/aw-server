@@ -1,7 +1,12 @@
 """Tests for moz-extension CORS endpoint scoping (extension_cors module)."""
+
 import pytest
 
-from aw_server.extension_cors import _is_allowed, _is_allowed_path
+from aw_server.extension_cors import (
+    _is_allowed,
+    _is_allowed_path,
+    _matches_configured_origin,
+)
 from aw_server.server import AWFlask
 
 _EXT_ORIGIN = "moz-extension://aabbccddeeff00112233445566778899"
@@ -79,7 +84,9 @@ def test_extension_allowed(client, method, path):
     """moz-extension origins are permitted at aw-watcher-web's endpoints."""
     headers = {"Origin": _EXT_ORIGIN}
     r = client.open(path, method=method, headers=headers)
-    assert r.status_code != 403, f"{method} {path} should not be blocked; got {r.status_code}"
+    assert (
+        r.status_code != 403
+    ), f"{method} {path} should not be blocked; got {r.status_code}"
 
 
 @pytest.mark.parametrize(
@@ -101,9 +108,34 @@ def test_extension_blocked(client, method, path):
     """moz-extension origins are blocked at endpoints beyond aw-watcher-web's needs."""
     headers = {"Origin": _EXT_ORIGIN}
     r = client.open(path, method=method, headers=headers)
-    assert r.status_code == 403, (
-        f"{method} {path} should be blocked (403); got {r.status_code}"
-    )
+    assert (
+        r.status_code == 403
+    ), f"{method} {path} should be blocked (403); got {r.status_code}"
+
+
+@pytest.mark.parametrize(
+    "pattern,origin,expected",
+    [
+        ("moz-extension://aabbcc", "moz-extension://aabbcc", True),
+        ("MOZ-EXTENSION://AABBCC", "moz-extension://aabbcc", True),
+        (r"moz-extension://.*", "moz-extension://aabbcc", True),
+        (r"moz-extension://[a-f0-9]+", "moz-extension://aabbcc", True),
+        (r"moz-extension://[0-9]+", "moz-extension://aabbcc", False),
+        ("moz-extension://other", "moz-extension://aabbcc", False),
+    ],
+)
+def test_matches_configured_origin(pattern, origin, expected):
+    assert _matches_configured_origin(origin, pattern) is expected
+
+
+def test_regex_configured_extension_origin_bypasses_scope_guard():
+    """Owner-configured regex origins retain unrestricted endpoint access."""
+    app = AWFlask(_HOST, testing=False, cors_origins=[r"moz-extension://.*"])
+    client = app.test_client()
+
+    response = client.get("/api/0/export", headers={"Origin": _EXT_ORIGIN})
+
+    assert response.status_code != 403
 
 
 def test_non_extension_origin_passthrough(client):

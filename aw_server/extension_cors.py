@@ -28,8 +28,8 @@ percent-encoding bypasses — the same bug class as aw-server-rust#588 and #636.
 See also: ActivityWatch/aw-server-rust#637 (the Rust sibling of this fix).
 """
 
-import fnmatch
 import logging
+import re
 from typing import List, Optional
 
 from flask import Flask, abort, request
@@ -53,9 +53,11 @@ def register(app: Flask, user_origins: List[str]) -> None:
         if not origin.lower().startswith(_EXTENSION_SCHEME):
             return None  # not a moz-extension origin — let flask-cors handle it
 
-        # User-configured explicit origins are deliberate opt-ins; exempt them.
+        # flask-cors 4 treats strings containing regex metacharacters as regular
+        # expressions and otherwise compares them case-insensitively. Keep this
+        # exemption consistent with that contract.
         for pattern in user_origins:
-            if fnmatch.fnmatch(origin, pattern):
+            if _matches_configured_origin(origin, pattern):
                 return None
 
         segments = [s for s in request.path.split("/") if s]
@@ -63,6 +65,17 @@ def register(app: Flask, user_origins: List[str]) -> None:
             return None
 
         abort(403)
+
+
+def _matches_configured_origin(origin: str, pattern: str) -> bool:
+    """Match an origin using flask-cors 4's configured-origin semantics."""
+    regex_chars = "*\\]?$^[()"
+    if any(char in pattern for char in regex_chars):
+        try:
+            return re.match(pattern, origin, flags=re.IGNORECASE) is not None
+        except re.error:
+            return False
+    return origin.lower() == pattern.lower()
 
 
 def _is_allowed(method: str, segments: List[str]) -> bool:
