@@ -2,6 +2,7 @@
 
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -13,11 +14,51 @@ from aw_server.settings import Settings
 
 @pytest.fixture
 def xdg_tmp(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    """Isolate dirs on every OS.
+
+    ``XDG_*_HOME`` only redirects platformdirs on Linux. Windows/macOS keep
+    using APPDATA / ~/Library, so a marker planted under the XDG data path
+    is invisible there (CI: Test on windows-latest / macOS-latest). Patch
+    the same platformdirs getters aw-core tests patch.
+    """
+    data = tmp_path / "data"
+    config = tmp_path / "config"
+    cache = tmp_path / "cache"
+
+    def _join(root: Path, appname: str) -> str:
+        return str(root / appname)
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    monkeypatch.setattr(
+        "aw_core.dirs.platformdirs.user_data_dir",
+        lambda appname, *a, **k: _join(data, appname),
+    )
+    monkeypatch.setattr(
+        "aw_core.dirs.platformdirs.user_config_dir",
+        lambda appname, *a, **k: _join(config, appname),
+    )
+    monkeypatch.setattr(
+        "aw_core.dirs.platformdirs.user_cache_dir",
+        lambda appname, *a, **k: _join(cache, appname),
+    )
+    monkeypatch.setattr(
+        "aw_core.dirs.platformdirs.user_cache_path",
+        lambda appname, *a, **k: cache / appname,
+    )
+    monkeypatch.setattr(
+        "aw_core.dirs.platformdirs.user_log_dir",
+        lambda appname, *a, **k: str(cache / appname / "log"),
+    )
     monkeypatch.delenv("AW_PROFILE", raising=False)
     return tmp_path
+
+
+def _plant_legacy_testing_db(xdg_tmp: Path) -> None:
+    data = xdg_tmp / "data" / "activitywatch" / "aw-server"
+    data.mkdir(parents=True)
+    (data / "peewee-sqlite-testing.v2.db").write_text("")
 
 
 class TestConfigHelpers:
@@ -30,9 +71,7 @@ class TestConfigHelpers:
         assert config_section("research") == "server"
 
     def test_legacy_testing_keeps_server_testing_section(self, xdg_tmp, monkeypatch):
-        data = xdg_tmp / "data" / "activitywatch" / "aw-server"
-        data.mkdir(parents=True)
-        (data / "peewee-sqlite-testing.v2.db").write_text("")
+        _plant_legacy_testing_db(xdg_tmp)
         monkeypatch.setenv("AW_PROFILE", "testing")
         assert config_section("testing") == "server-testing"
 
@@ -44,9 +83,7 @@ class TestConfigHelpers:
 
 class TestSettingsFilename:
     def test_legacy_testing_keeps_suffixed_name(self, xdg_tmp, monkeypatch):
-        data = xdg_tmp / "data" / "activitywatch" / "aw-server"
-        data.mkdir(parents=True)
-        (data / "peewee-sqlite-testing.v2.db").write_text("")
+        _plant_legacy_testing_db(xdg_tmp)
         monkeypatch.setenv("AW_PROFILE", "testing")
         settings = Settings(True)
         assert settings.config_file.name == "settings-testing.json"
@@ -105,8 +142,6 @@ class TestParseSettings:
     def test_isolated_named_profile_reads_server_section_port(
         self, xdg_tmp, monkeypatch
     ):
-        from pathlib import Path
-
         import aw_core.dirs as aw_dirs
 
         export_profile("research")
